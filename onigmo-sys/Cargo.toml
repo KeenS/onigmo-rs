@@ -1,0 +1,9 @@
+[package]
+name = "onigmo-sys"
+version = "0.1.0"
+authors = ["Sunrin SHIMURA (keen) <3han5chou7@gmail.com>"]
+
+[dependencies]
+
+[build-dependencies]
+bindgen = "0.23"
