@@ -12,7 +12,7 @@ use std::sync::{Once, ONCE_INIT};
 pub struct Regex(regex_t);
 
 #[derive(Debug, Clone)]
-pub struct Error(OnigPosition, Option<OnigErrorInfo>);
+pub struct Error(OnigPosition, Option<OnigErrorInfo>, String);
 type Result<T> = ::std::result::Result<T, Error>;
 
 #[derive(Debug)]
@@ -26,11 +26,11 @@ pub struct StrIter<'a>(&'a Region, Range<i32>, &'a str);
 fn initialize() {
     static INIT: Once = ONCE_INIT;
     INIT.call_once(|| unsafe {
-        onig_init();
-        assert_eq!(libc::atexit(cleanup), 0);
-    });
+                       onig_init();
+                       assert_eq!(libc::atexit(cleanup), 0);
+                   });
 
-    pub extern fn cleanup() {
+    pub extern "C" fn cleanup() {
         unsafe {
             onig_end();
         }
@@ -56,7 +56,7 @@ impl Regex {
             if (r as ::std::os::raw::c_uint) == ONIG_NORMAL {
                 Ok(Regex(reg))
             } else {
-                Err(Error(r as OnigPosition, Some(einfo)))
+                Err(Error::new(r as OnigPosition, Some(einfo)))
             }
         }
     }
@@ -85,7 +85,7 @@ impl Regex {
                                 ONIG_OPTION_NONE);
             if 0 <= r {
                 Some(region)
-            } else  {
+            } else {
                 debug_assert!(r as ::std::os::raw::c_int == ONIG_MISMATCH);
                 None
             }
@@ -101,13 +101,8 @@ impl Regex {
 
             let region = Region::new();
 
-            let r = onig_match(&mut self.0,
-                       start,
-                       end,
-                       at,
-                       region.0,
-                               ONIG_OPTION_NONE);
-            if 0 <=r {
+            let r = onig_match(&mut self.0, start, end, at, region.0, ONIG_OPTION_NONE);
+            if 0 <= r {
                 Some(r as usize)
             } else {
                 debug_assert!(r as ::std::os::raw::c_int == ONIG_MISMATCH);
@@ -116,9 +111,18 @@ impl Regex {
         }
     }
 
-    pub fn scan(&mut self, s: &str, mut cb: &mut FnMut(isize, isize, &mut Region) -> std::result::Result<(), i32>) -> std::result::Result<usize, isize> {
-        unsafe extern fn callback(start: OnigPosition, end: OnigPosition, region: *mut OnigRegion, f: *mut ::std::os::raw::c_void) -> ::std::os::raw::c_int {
-            let f = mem::transmute::<_, &mut &mut FnMut(isize, isize, &mut Region) -> std::result::Result<(), i32>>(f);
+    pub fn scan(&mut self,
+                s: &str,
+                mut cb: &mut FnMut(isize, isize, &mut Region) -> std::result::Result<(), i32>)
+                -> std::result::Result<usize, isize> {
+        unsafe extern "C" fn callback(start: OnigPosition,
+                                      end: OnigPosition,
+                                      region: *mut OnigRegion,
+                                      f: *mut ::std::os::raw::c_void)
+                                      -> ::std::os::raw::c_int {
+            let f = mem::transmute::<_,
+                                     &mut &mut FnMut(isize, isize, &mut Region)
+                                                     -> std::result::Result<(), i32>>(f);
             let start = start as isize;
             let end = end as isize;
             let mut region = Region(region);
@@ -143,13 +147,8 @@ impl Regex {
                               region.0,
                               ONIG_OPTION_NONE,
                               Some(callback),
-                              mem::transmute(&mut cb)
-            );
-            if 0 <= r {
-                Ok(r as usize)
-            } else {
-                Err(0)
-            }
+                              mem::transmute(&mut cb));
+            if 0 <= r { Ok(r as usize) } else { Err(0) }
         }
     }
 }
@@ -195,92 +194,31 @@ impl Drop for Region {
 }
 
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use std::str::from_utf8_unchecked;
+impl Error {
+    fn new(pos: OnigPosition, error_info: Option<OnigErrorInfo>) -> Self {
+        use std::str::from_utf8;
         let s: &mut [OnigUChar] = &mut [0; ONIG_MAX_ERROR_MESSAGE_LEN as usize];
         unsafe {
-            onig_error_code_to_str(s as *mut _ as *mut _, self.0 as OnigPosition, self.1);
-            write!(f, "ERROR: {}\n", from_utf8_unchecked(s))
+            let size = match error_info {
+                Some(ei) => onig_error_code_to_str(s as *mut _ as *mut _, pos, ei),
+                None => onig_error_code_to_str(s as *mut _ as *mut _, pos),
+            };
+            let size = size as usize;
+            let s = from_utf8(&s[0..size]).unwrap().to_string();
+            Error(pos, error_info, s)
         }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ERROR: {}\n", self.2)
     }
 }
 
 impl error::Error for Error {
     fn description(&self) -> &str {
-        match self.0 as ::std::os::raw::c_int {
-            /* normal return */
-            //ONIG_NORMAL: = 0;
-            ONIG_MISMATCH => "mismatch",
-            ONIG_NO_SUPPORT_CONFIG => "no support in this configuration",
-            /* internal error */
-            ONIGERR_MEMORY => "failed to allocate memory",
-            ONIGERR_TYPE_BUG => "undefined type (bug)",
-            ONIGERR_PARSER_BUG => "internal parser error (bug)",
-            ONIGERR_STACK_BUG => "stack error (bug)",
-            ONIGERR_UNDEFINED_BYTECODE => "undefined bytecode (bug)",
-            ONIGERR_UNEXPECTED_BYTECODE => "unexpected bytecode (bug)",
-            ONIGERR_MATCH_STACK_LIMIT_OVER => "match-stack limit over",
-            ONIGERR_PARSE_DEPTH_LIMIT_OVER => "parse depth limit over",
-            ONIGERR_DEFAULT_ENCODING_IS_NOT_SET => "default multibyte-encoding is not set",
-            ONIGERR_SPECIFIED_ENCODING_CANT_CONVERT_TO_WIDE_CHAR => "can't convert to wide-char on specified multibyte-encoding",
-            /* general error */
-            ONIGERR_INVALID_ARGUMENT => "invalid argument",
-            /* syntax error */
-            ONIGERR_END_PATTERN_AT_LEFT_BRACE => "end pattern at left brace",
-            ONIGERR_END_PATTERN_AT_LEFT_BRACKET => "end pattern at left bracket",
-            ONIGERR_EMPTY_CHAR_CLASS => "empty char-class",
-            ONIGERR_PREMATURE_END_OF_CHAR_CLASS => "premature end of char-class",
-            ONIGERR_END_PATTERN_AT_ESCAPE => "end pattern at escape",
-            ONIGERR_END_PATTERN_AT_META => "end pattern at meta",
-            ONIGERR_END_PATTERN_AT_CONTROL => "end pattern at control",
-            ONIGERR_META_CODE_SYNTAX => "invalid meta-code syntax",
-            ONIGERR_CONTROL_CODE_SYNTAX => "invalid control-code syntax",
-            ONIGERR_CHAR_CLASS_VALUE_AT_END_OF_RANGE => "char-class value at end of range",
-            ONIGERR_CHAR_CLASS_VALUE_AT_START_OF_RANGE => "char-class value at start of range",
-            ONIGERR_UNMATCHED_RANGE_SPECIFIER_IN_CHAR_CLASS => "unmatched range specifier in char-class",
-            ONIGERR_TARGET_OF_REPEAT_OPERATOR_NOT_SPECIFIED => "target of repeat operator is not specified",
-            ONIGERR_TARGET_OF_REPEAT_OPERATOR_INVALID => "target of repeat operator is invalid",
-            ONIGERR_NESTED_REPEAT_OPERATOR => "nested repeat operator",
-            ONIGERR_UNMATCHED_CLOSE_PARENTHESIS => "unmatched close parenthesis",
-            ONIGERR_END_PATTERN_WITH_UNMATCHED_PARENTHESIS => "end pattern with unmatched parenthesis",
-            ONIGERR_END_PATTERN_IN_GROUP => "end pattern in group",
-            ONIGERR_UNDEFINED_GROUP_OPTION => "undefined group option",
-            ONIGERR_INVALID_POSIX_BRACKET_TYPE => "invalid POSIX bracket type",
-            ONIGERR_INVALID_LOOK_BEHIND_PATTERN => "invalid pattern in look-behind",
-            ONIGERR_INVALID_REPEAT_RANGE_PATTERN => "invalid repeat range {lower,upper}",
-            ONIGERR_INVALID_CONDITION_PATTERN => "invalid conditional pattern",
-            /* values error (syntax error) */
-            ONIGERR_TOO_BIG_NUMBER => "too big number",
-            ONIGERR_TOO_BIG_NUMBER_FOR_REPEAT_RANGE => "too big number for repeat range",
-            ONIGERR_UPPER_SMALLER_THAN_LOWER_IN_REPEAT_RANGE => "upper is smaller than lower in repeat range",
-            ONIGERR_EMPTY_RANGE_IN_CHAR_CLASS => "empty range in char class",
-            ONIGERR_MISMATCH_CODE_LENGTH_IN_CLASS_RANGE => "mismatch multibyte code length in char-class range",
-            ONIGERR_TOO_MANY_MULTI_BYTE_RANGES => "too many multibyte code ranges are specified",
-            ONIGERR_TOO_SHORT_MULTI_BYTE_STRING => "too short multibyte code string",
-            ONIGERR_TOO_BIG_BACKREF_NUMBER => "too big backref number",
-            ONIGERR_INVALID_BACKREF => "invalid backref number",
-            ONIGERR_NUMBERED_BACKREF_OR_CALL_NOT_ALLOWED => "numbered backref/call is not allowed. (use name)",
-            ONIGERR_TOO_MANY_CAPTURE_GROUPS => "too many capture groups are specified",
-            ONIGERR_TOO_SHORT_DIGITS => "too short digits",
-            ONIGERR_TOO_LONG_WIDE_CHAR_VALUE => "too long wide-char value",
-            ONIGERR_EMPTY_GROUP_NAME => "group name is empty",
-            ONIGERR_INVALID_GROUP_NAME => "invalid group name <%n>",
-            ONIGERR_INVALID_CHAR_IN_GROUP_NAME => "invalid char in group name <%n>",
-            ONIGERR_UNDEFINED_NAME_REFERENCE => "undefined name <%n> reference",
-            ONIGERR_UNDEFINED_GROUP_REFERENCE => "undefined group <%n> reference",
-            ONIGERR_MULTIPLEX_DEFINED_NAME => "multiplex defined name <%n>",
-            ONIGERR_MULTIPLEX_DEFINITION_NAME_CALL => "multiplex definition name <%n> call",
-            ONIGERR_NEVER_ENDING_RECURSION => "never ending recursion",
-            ONIGERR_GROUP_NUMBER_OVER_FOR_CAPTURE_HISTORY => "group number is too big for capture history",
-            ONIGERR_INVALID_CHAR_PROPERTY_NAME => "invalid character property name {%n}",
-            ONIGERR_INVALID_WIDE_CHAR_VALUE => "invalid code point value",
-            // ONIGERR_INVALID_CODE_POINT_VALUE => "invalid code point value",
-            ONIGERR_TOO_BIG_WIDE_CHAR_VALUE => "too big wide-char value",
-            ONIGERR_NOT_SUPPORTED_ENCODING_COMBINATION => "not supported encoding combination",
-            ONIGERR_INVALID_COMBINATION_OF_OPTIONS => "invalid combination of options",
-            _ => "undefined error code"
-        }
+        &self.2
     }
 
     fn cause(&self) -> Option<&error::Error> {
@@ -296,7 +234,10 @@ impl<'a> Iterator for PositionIter<'a> {
             let region = *(self.0).0;
             self.1
                 .next()
-                .map(|i| (*region.beg.offset(i as isize) as usize, *region.end.offset(i as isize) as usize))
+                .map(|i| {
+                         (*region.beg.offset(i as isize) as usize,
+                          *region.end.offset(i as isize) as usize)
+                     })
         }
     }
 }
@@ -326,9 +267,11 @@ fn test_match_at() {
 fn test_scan() {
     let mut reg = Regex::new("ab".to_string()).unwrap();
     let s = "abcdabcdabcd";
-    let r = reg.scan(s, &mut |start, end, _reg|{
-        println!("{} {}", start, end);
-        Ok(())
-    }).unwrap();
+    let r = reg.scan(s,
+                     &mut |start, end, _reg| {
+                              println!("{} {}", start, end);
+                              Ok(())
+                          })
+        .unwrap();
     assert_eq!(r, 3);
 }
