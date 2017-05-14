@@ -1,10 +1,13 @@
 extern crate onigmo_sys;
+extern crate libc;
+
 use onigmo_sys::*;
 use std::mem;
 use std::fmt;
 use std::error;
 use std::ops::Drop;
 use std::ops::Range;
+use std::sync::{Once, ONCE_INIT};
 
 pub struct Regex(regex_t);
 
@@ -13,15 +16,30 @@ pub struct Error(OnigPosition, Option<OnigErrorInfo>);
 type Result<T> = ::std::result::Result<T, Error>;
 
 #[derive(Debug)]
-pub struct Region(*const OnigRegion);
+pub struct Region(*mut OnigRegion);
 
 #[derive(Debug, Clone)]
 pub struct PositionIter<'a>(&'a Region, Range<i32>);
 #[derive(Debug, Clone)]
 pub struct StrIter<'a>(&'a Region, Range<i32>, &'a str);
 
+fn initialize() {
+    static INIT: Once = ONCE_INIT;
+    INIT.call_once(|| unsafe {
+        onig_init();
+        assert_eq!(libc::atexit(cleanup), 0);
+    });
+
+    pub extern fn cleanup() {
+        unsafe {
+            onig_end();
+        }
+    }
+}
+
 impl Regex {
     pub fn new(pattern: String) -> Result<Self> {
+        initialize();
         unsafe {
             let mut reg: regex_t = mem::uninitialized();
             let pattern = pattern.as_bytes();
@@ -43,35 +61,94 @@ impl Regex {
         }
     }
 
-    pub fn end() {
+    pub fn cleanup() {
         unsafe {
             onig_end();
         }
     }
-
-    pub fn search(&mut self, s: &str) -> Result<Option<Region>> {
+    // TODO reverse search
+    pub fn search(&mut self, s: &str) -> Option<Region> {
         unsafe {
             let s = s.as_bytes();
             let start = s.as_ptr();
             let end = start.offset(s.len() as isize);
             let range = end;
 
-            let region: *mut OnigRegion;
-            region = onig_region_new();
+            let region = Region::new();
 
             let r = onig_search(&mut self.0,
                                 start,
                                 end,
                                 start,
                                 range,
-                                region,
+                                region.0,
                                 ONIG_OPTION_NONE);
             if 0 <= r {
-                Ok(Some(Region(region)))
-            } else if (r as ::std::os::raw::c_int) == ONIG_MISMATCH {
-                Ok(None)
+                Some(region)
+            } else  {
+                debug_assert!(r as ::std::os::raw::c_int == ONIG_MISMATCH);
+                None
+            }
+        }
+    }
+
+    pub fn match_at(&mut self, s: &str, at: usize) -> Option<usize> {
+        unsafe {
+            let s = s.as_bytes();
+            let start = s.as_ptr();
+            let end = start.offset(s.len() as isize);
+            let at = start.offset(at as isize);
+
+            let region = Region::new();
+
+            let r = onig_match(&mut self.0,
+                       start,
+                       end,
+                       at,
+                       region.0,
+                               ONIG_OPTION_NONE);
+            if 0 <=r {
+                Some(r as usize)
             } else {
-                Err(Error(r, None))
+                debug_assert!(r as ::std::os::raw::c_int == ONIG_MISMATCH);
+                None
+            }
+        }
+    }
+
+    pub fn scan(&mut self, s: &str, mut cb: &mut FnMut(isize, isize, &mut Region) -> std::result::Result<(), i32>) -> std::result::Result<usize, isize> {
+        unsafe extern fn callback(start: OnigPosition, end: OnigPosition, region: *mut OnigRegion, f: *mut ::std::os::raw::c_void) -> ::std::os::raw::c_int {
+            let f = mem::transmute::<_, &mut &mut FnMut(isize, isize, &mut Region) -> std::result::Result<(), i32>>(f);
+            let start = start as isize;
+            let end = end as isize;
+            let mut region = Region(region);
+            let ret = f(start, end, &mut region);
+            // not to free the region
+            mem::forget(region);
+            match ret {
+                Ok(_) => 0,
+                Err(e) => e as ::std::os::raw::c_int,
+            }
+        }
+        // TODO: check safety when a panic occurred in the callback function
+        unsafe {
+            let s = s.as_bytes();
+            let start = s.as_ptr();
+            let end = start.offset(s.len() as isize);
+            let region = Region::new();
+
+            let r = onig_scan(&mut self.0,
+                              start,
+                              end,
+                              region.0,
+                              ONIG_OPTION_NONE,
+                              Some(callback),
+                              mem::transmute(&mut cb)
+            );
+            if 0 <= r {
+                Ok(r as usize)
+            } else {
+                Err(0)
             }
         }
     }
@@ -84,6 +161,13 @@ impl Drop for Regex {
 }
 
 impl Region {
+    pub fn new() -> Self {
+        unsafe {
+            let region: *mut OnigRegion = onig_region_new();
+            Region(region)
+        }
+    }
+
     pub fn positions(&self) -> PositionIter {
         let num_regs;
         unsafe {
@@ -93,20 +177,20 @@ impl Region {
     }
 }
 
-// impl Clone for Region {
-//     fn clone(&self) -> Self {
-//         unsafe {
-//             let mut to: *mut OnigRegion = mem::
-//             onig_region_copy(&mut to, &self.0);
-//             Region(to)
-//         }
+impl Clone for Region {
+    fn clone(&self) -> Self {
+        unsafe {
+            let to: *mut OnigRegion = mem::uninitialized();
+            onig_region_copy(to, self.0);
+            Region(to)
+        }
 
-//     }
-// }
+    }
+}
 
 impl Drop for Region {
     fn drop(&mut self) {
-        unsafe { onig_region_free(self.0 as *mut _, 1) }
+        unsafe { onig_region_free(self.0, 1) }
     }
 }
 
@@ -218,3 +302,33 @@ impl<'a> Iterator for PositionIter<'a> {
 }
 
 //pub struct RegexBuilder
+
+
+
+#[test]
+fn test_search() {
+    let mut reg = Regex::new("a(.*)b|[e-f]+".to_string()).unwrap();
+    let s = "zzzzaffffffffb";
+    let reg = reg.search(s).unwrap();
+    assert_eq!(reg.positions().count(), 2);
+}
+
+
+#[test]
+fn test_match_at() {
+    let mut reg = Regex::new("a(.*)b|[e-f]+".to_string()).unwrap();
+    let s = "zzzzaffffffffb";
+
+    assert_eq!(reg.match_at(s, 3), None);
+}
+
+#[test]
+fn test_scan() {
+    let mut reg = Regex::new("ab".to_string()).unwrap();
+    let s = "abcdabcdabcd";
+    let r = reg.scan(s, &mut |start, end, _reg|{
+        println!("{} {}", start, end);
+        Ok(())
+    }).unwrap();
+    assert_eq!(r, 3);
+}

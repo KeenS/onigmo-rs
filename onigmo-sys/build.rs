@@ -4,27 +4,22 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    // Tell cargo to tell rustc to link the system bzip2
-    // shared library.
+    // onigmoの共有ライブラリを使うことをcargoがrustcに伝えるように伝えます
     println!("cargo:rustc-link-lib=onigmo");
 
-    // The bindgen::Builder is the main entry point
-    // to bindgen, and lets you build up options for
-    // the resulting bindings.
+    // `binden::Builder`がbindgenを使うときのメインのエントリーポイントです
+    // オプションを設定できます。
     let bindings = bindgen::Builder::default()
-        // Do not generate unstable Rust code that
-        // requires a nightly rustc and enabling
-        // unstable features.
+        // featureを要求したりnightlyでしか動かないような
+        // unstableなコード使いません
         .no_unstable_rust()
-        // The input header we would like to generate
-        // bindings for.
+        // バインディングを作る基になるヘッダファイルです
         .header("wrapper.h")
-        // Finish the builder and generate the bindings.
+        // ビルダーを完了してバインディングを生成します
         .generate()
-        // Unwrap the Result and panic on failure.
         .expect("Unable to generate bindings");
 
-    // Write the bindings to the $OUT_DIR/bindings.rs file.
+    // バインディングを`$OUT_DIR/bindings.rs`に書き出します。
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
         .write_to_file(out_path.join("bindings.rs"))

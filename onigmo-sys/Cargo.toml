@@ -6,4 +6,4 @@ authors = ["Sunrin SHIMURA (keen) <3han5chou7@gmail.com>"]
 [dependencies]
 
 [build-dependencies]
-bindgen = "0.23"
+bindgen = "0.25"
