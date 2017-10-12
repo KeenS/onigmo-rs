@@ -2,6 +2,12 @@
 name = "onigmo-sys"
 version = "0.1.0"
 authors = ["Sunrin SHIMURA (keen) <3han5chou7@gmail.com>"]
+description = "C API binding of a regular expression engine [onigmo](https://github.com/k-takata/Onigmo) >= 6.1.2."
+readme = "README.md"
+documentation = "http://docs.rs/onigmo-sys"
+repository = "https://github.com/KeenS/Onigmo-rs"
+keywords = ["regex", "regexp", "onigmo", "ffi"]
+categories = ["api-bindings", "external-ffi-bindings"]
 
 [dependencies]
 
