@@ -14,18 +14,19 @@ fn main() {
         let mut reg: regex_t = mem::uninitialized();
         let mut einfo: OnigErrorInfo = mem::uninitialized();
         // 正規表現文字列をコンパイルし、`reg`に格納します。
-        let r = onig_new_without_alloc(&mut reg as *mut _,
-                                       // パターン文字列の先頭です
-                                       pattern as *const OnigUChar,
-                                       // パターン文字列の末尾です
-                                       (pattern as *const OnigUChar).offset(pattern.len() as
-                                                                            isize),
-                                       // 今回、オプションは特には付けません
-                                       ONIG_OPTION_NONE,
-                                       // Rustの文字列はUTF-8エンコーディングです
-                                       &OnigEncodingUTF_8,
-                                       OnigDefaultSyntax as *mut _,
-                                       &mut einfo);
+        let r = onig_new_without_alloc(
+            &mut reg as *mut _,
+            // パターン文字列の先頭です
+            pattern as *const OnigUChar,
+            // パターン文字列の末尾です
+            (pattern as *const OnigUChar).offset(pattern.len() as isize),
+            // 今回、オプションは特には付けません
+            ONIG_OPTION_NONE,
+            // Rustの文字列はUTF-8エンコーディングです
+            &OnigEncodingUTF_8,
+            OnigDefaultSyntax,
+            &mut einfo,
+        );
         // 返り値が正常値でなければエラーです
         if (r as ::std::os::raw::c_uint) != ONIG_NORMAL {
             // エラー情報を取得し印字します
@@ -46,23 +47,27 @@ fn main() {
         // マッチ終了位置です
         let range = end;
         // 正規表現でマッチします
-        let mut r = onig_search(&mut reg,
-                                s as *const _,
-                                end,
-                                start,
-                                range,
-                                region,
-                                ONIG_OPTION_NONE);
+        let mut r = onig_search(
+            &mut reg,
+            s as *const _,
+            end,
+            start,
+            range,
+            region,
+            ONIG_OPTION_NONE,
+        );
         if 0 <= r {
             // 返り値が0以上ならマッチしています
             println!("match at {}", r);
             let region = region.as_ref().unwrap();
             // グルーピングされた部分正規表現毎にマッチ位置を表示します
             for i in 0..(region.num_regs) {
-                println!("{}: ({}-{})",
-                         i,
-                         *region.beg.offset(i as isize),
-                         *region.end.offset(i as isize));
+                println!(
+                    "{}: ({}-{})",
+                    i,
+                    *region.beg.offset(i as isize),
+                    *region.end.offset(i as isize)
+                );
             }
             r = 0;
         } else if (r as ::std::os::raw::c_int) == ONIG_MISMATCH {
