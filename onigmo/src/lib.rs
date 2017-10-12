@@ -26,9 +26,9 @@ pub struct StrIter<'a>(&'a Region, Range<i32>, &'a str);
 fn initialize() {
     static INIT: Once = ONCE_INIT;
     INIT.call_once(|| unsafe {
-                       onig_init();
-                       assert_eq!(libc::atexit(cleanup), 0);
-                   });
+        onig_init();
+        assert_eq!(libc::atexit(cleanup), 0);
+    });
 
     pub extern "C" fn cleanup() {
         unsafe {
@@ -44,15 +44,15 @@ impl Regex {
             let mut reg: regex_t = mem::uninitialized();
             let pattern = pattern.as_bytes();
             let mut einfo: OnigErrorInfo = mem::uninitialized();
-            let r = onig_new_without_alloc(&mut reg as *mut _,
-                                           pattern.as_ptr() as *const OnigUChar,
-                                           (pattern.as_ptr() as *const OnigUChar)
-                                               .offset(pattern.len() as isize),
-                                           ONIG_OPTION_NONE,
-                                           &OnigEncodingUTF_8,
-                                           // workaround for current version. fixed at master
-                                           OnigDefaultSyntax as *mut _,
-                                           &mut einfo);
+            let r = onig_new_without_alloc(
+                &mut reg as *mut _,
+                pattern.as_ptr() as *const OnigUChar,
+                (pattern.as_ptr() as *const OnigUChar).offset(pattern.len() as isize),
+                ONIG_OPTION_NONE,
+                &OnigEncodingUTF_8,
+                OnigDefaultSyntax,
+                &mut einfo,
+            );
             if (r as ::std::os::raw::c_uint) == ONIG_NORMAL {
                 Ok(Regex(reg))
             } else {
@@ -73,20 +73,21 @@ impl Regex {
             let start = s.as_ptr();
             let end = start.offset(s.len() as isize);
             let range = end;
-
             let region = Region::new();
 
-            let r = onig_search(&mut self.0,
-                                start,
-                                end,
-                                start,
-                                range,
-                                region.0,
-                                ONIG_OPTION_NONE);
-            if 0 <= r {
+            let pos = onig_search(
+                &mut self.0,
+                start,
+                end,
+                start,
+                range,
+                region.0,
+                ONIG_OPTION_NONE,
+            );
+            if 0 <= pos {
                 Some(region)
             } else {
-                debug_assert!(r as ::std::os::raw::c_int == ONIG_MISMATCH);
+                debug_assert!(pos as ::std::os::raw::c_int == ONIG_MISMATCH);
                 None
             }
         }
@@ -111,18 +112,22 @@ impl Regex {
         }
     }
 
-    pub fn scan(&mut self,
-                s: &str,
-                mut cb: &mut FnMut(isize, isize, &mut Region) -> std::result::Result<(), i32>)
-                -> std::result::Result<usize, isize> {
-        unsafe extern "C" fn callback(start: OnigPosition,
-                                      end: OnigPosition,
-                                      region: *mut OnigRegion,
-                                      f: *mut ::std::os::raw::c_void)
-                                      -> ::std::os::raw::c_int {
-            let f = mem::transmute::<_,
-                                     &mut &mut FnMut(isize, isize, &mut Region)
-                                                     -> std::result::Result<(), i32>>(f);
+    pub fn scan(
+        &mut self,
+        s: &str,
+        mut cb: &mut FnMut(isize, isize, &mut Region) -> std::result::Result<(), i32>,
+    ) -> std::result::Result<usize, isize> {
+        unsafe extern "C" fn callback(
+            start: OnigPosition,
+            end: OnigPosition,
+            region: *mut OnigRegion,
+            f: *mut ::std::os::raw::c_void,
+        ) -> ::std::os::raw::c_int {
+            let f = mem::transmute::<
+                _,
+                &mut &mut FnMut(isize, isize, &mut Region)
+                                -> std::result::Result<(), i32>,
+            >(f);
             let start = start as isize;
             let end = end as isize;
             let mut region = Region(region);
@@ -141,13 +146,15 @@ impl Regex {
             let end = start.offset(s.len() as isize);
             let region = Region::new();
 
-            let r = onig_scan(&mut self.0,
-                              start,
-                              end,
-                              region.0,
-                              ONIG_OPTION_NONE,
-                              Some(callback),
-                              mem::transmute(&mut cb));
+            let r = onig_scan(
+                &mut self.0,
+                start,
+                end,
+                region.0,
+                ONIG_OPTION_NONE,
+                Some(callback),
+                mem::transmute(&mut cb),
+            );
             if 0 <= r { Ok(r as usize) } else { Err(0) }
         }
     }
@@ -232,12 +239,12 @@ impl<'a> Iterator for PositionIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         unsafe {
             let region = *(self.0).0;
-            self.1
-                .next()
-                .map(|i| {
-                         (*region.beg.offset(i as isize) as usize,
-                          *region.end.offset(i as isize) as usize)
-                     })
+            self.1.next().map(|i| {
+                (
+                    *region.beg.offset(i as isize) as usize,
+                    *region.end.offset(i as isize) as usize,
+                )
+            })
         }
     }
 }
@@ -267,11 +274,9 @@ fn test_match_at() {
 fn test_scan() {
     let mut reg = Regex::new("ab".to_string()).unwrap();
     let s = "abcdabcdabcd";
-    let r = reg.scan(s,
-                     &mut |start, end, _reg| {
-                              println!("{} {}", start, end);
-                              Ok(())
-                          })
-        .unwrap();
+    let r = reg.scan(s, &mut |start, end, _reg| {
+        println!("{} {}", start, end);
+        Ok(())
+    }).unwrap();
     assert_eq!(r, 3);
 }
