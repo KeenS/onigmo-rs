@@ -4,7 +4,7 @@ name = "onigmo"
 version = "0.1.0"
 
 [dependencies]
-libc = "0.2.22"
+libc = "0.2.32"
 
 [dependencies.onigmo-sys]
 path = "../onigmo-sys"
