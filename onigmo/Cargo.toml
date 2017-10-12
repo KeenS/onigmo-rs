@@ -1,7 +1,14 @@
 [package]
 authors = ["Sunrin SHIMURA (keen) <3han5chou7@gmail.com>"]
 name = "onigmo"
-version = "0.1.0"
+version = "0.0.1"
+license = "MIT OR Apache-2.0"
+description = "Rusty API wrapper of onigmo-sys"
+readme = "README.md"
+documentation = "http://docs.rs/onigmo"
+repository = "https://github.com/KeenS/Onigmo-rs"
+keywords = ["regex", "regexp", "onigmo"]
+categories = ["api-bindings"]
 
 [dependencies]
 libc = "0.2.32"
