@@ -12,7 +12,7 @@ fn main() {
     let bindings = bindgen::Builder::default()
         // featureを要求したりnightlyでしか動かないような
         // unstableなコード使いません
-        .no_unstable_rust()
+        //.rust_target(LATEST_STABLE_RUST)
         // バインディングを作る基になるヘッダファイルです
         .header("wrapper.h")
         // ビルダーを完了してバインディングを生成します
