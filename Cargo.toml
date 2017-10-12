@@ -1,2 +1,5 @@
 [workspace]
 members = ["onigmo-sys", "onigmo"]
+
+[replace]
+"onigmo-sys:0.1.0" = { path = "onigmo-sys"}
