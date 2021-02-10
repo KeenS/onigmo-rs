@@ -13,4 +13,4 @@ categories = ["api-bindings", "external-ffi-bindings"]
 [dependencies]
 
 [build-dependencies]
-bindgen = "0.30"
+bindgen = "0.57"
