@@ -7,7 +7,7 @@ use std::fmt;
 use std::error;
 use std::ops::Drop;
 use std::ops::Range;
-use std::sync::{Once, ONCE_INIT};
+use std::sync::{Once};
 
 pub struct Regex(regex_t);
 
@@ -24,7 +24,7 @@ pub struct PositionIter<'a>(&'a Region, Range<i32>);
 pub struct StrIter<'a>(&'a Region, Range<i32>, &'a str);
 
 fn initialize() {
-    static INIT: Once = ONCE_INIT;
+    static INIT: Once = Once::new();
     INIT.call_once(|| unsafe {
         onig_init();
         assert_eq!(libc::atexit(cleanup), 0);
@@ -115,7 +115,7 @@ impl Regex {
     pub fn scan(
         &mut self,
         s: &str,
-        mut cb: &mut FnMut(isize, isize, &mut Region) -> std::result::Result<(), i32>,
+        mut cb: &mut dyn FnMut(isize, isize, &mut Region) -> std::result::Result<(), i32>,
     ) -> std::result::Result<usize, isize> {
         unsafe extern "C" fn callback(
             start: OnigPosition,
@@ -125,7 +125,7 @@ impl Regex {
         ) -> ::std::os::raw::c_int {
             let f = mem::transmute::<
                 _,
-                &mut &mut FnMut(isize, isize, &mut Region)
+                &mut &mut dyn FnMut(isize, isize, &mut Region)
                                 -> std::result::Result<(), i32>,
             >(f);
             let start = start as isize;
@@ -228,7 +228,7 @@ impl error::Error for Error {
         &self.2
     }
 
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         None
     }
 }
