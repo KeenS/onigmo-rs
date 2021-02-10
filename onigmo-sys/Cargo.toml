@@ -9,6 +9,7 @@ documentation = "http://docs.rs/onigmo-sys"
 repository = "https://github.com/KeenS/Onigmo-rs"
 keywords = ["regex", "regexp", "onigmo", "ffi"]
 categories = ["api-bindings", "external-ffi-bindings"]
+edition = "2018"
 
 [dependencies]
 
