@@ -1,13 +1,13 @@
-extern crate onigmo_sys;
 extern crate libc;
+extern crate onigmo_sys;
 
 use onigmo_sys::*;
-use std::mem;
-use std::fmt;
 use std::error;
+use std::fmt;
+use std::mem;
 use std::ops::Drop;
 use std::ops::Range;
-use std::sync::{Once};
+use std::sync::Once;
 
 pub struct Regex(regex_t);
 
@@ -41,22 +41,22 @@ impl Regex {
     pub fn new(pattern: String) -> Result<Self> {
         initialize();
         unsafe {
-            let mut reg: regex_t = mem::uninitialized();
+            let mut reg = mem::MaybeUninit::<regex_t>::uninit();
             let pattern = pattern.as_bytes();
-            let mut einfo: OnigErrorInfo = mem::uninitialized();
+            let mut einfo = mem::MaybeUninit::<OnigErrorInfo>::uninit();
             let r = onig_new_without_alloc(
-                &mut reg as *mut _,
+                reg.as_mut_ptr(),
                 pattern.as_ptr() as *const OnigUChar,
                 (pattern.as_ptr() as *const OnigUChar).offset(pattern.len() as isize),
                 ONIG_OPTION_NONE,
                 &OnigEncodingUTF_8,
                 OnigDefaultSyntax,
-                &mut einfo,
+                einfo.as_mut_ptr(),
             );
             if (r as ::std::os::raw::c_uint) == ONIG_NORMAL {
-                Ok(Regex(reg))
+                Ok(Regex(reg.assume_init()))
             } else {
-                Err(Error::new(r as OnigPosition, Some(einfo)))
+                Err(Error::new(r as OnigPosition, Some(einfo.assume_init())))
             }
         }
     }
@@ -125,8 +125,7 @@ impl Regex {
         ) -> ::std::os::raw::c_int {
             let f = mem::transmute::<
                 _,
-                &mut &mut dyn FnMut(isize, isize, &mut Region)
-                                -> std::result::Result<(), i32>,
+                &mut &mut dyn FnMut(isize, isize, &mut Region) -> std::result::Result<(), i32>,
             >(f);
             let start = start as isize;
             let end = end as isize;
@@ -155,7 +154,11 @@ impl Regex {
                 Some(callback),
                 mem::transmute(&mut cb),
             );
-            if 0 <= r { Ok(r as usize) } else { Err(0) }
+            if 0 <= r {
+                Ok(r as usize)
+            } else {
+                Err(0)
+            }
         }
     }
 }
@@ -186,11 +189,10 @@ impl Region {
 impl Clone for Region {
     fn clone(&self) -> Self {
         unsafe {
-            let to: *mut OnigRegion = mem::uninitialized();
-            onig_region_copy(to, self.0);
-            Region(to)
+            let mut to = mem::MaybeUninit::<*mut OnigRegion>::uninit();
+            onig_region_copy(*to.as_mut_ptr(), self.0);
+            Region(to.assume_init())
         }
-
     }
 }
 
@@ -199,7 +201,6 @@ impl Drop for Region {
         unsafe { onig_region_free(self.0, 1) }
     }
 }
-
 
 impl Error {
     fn new(pos: OnigPosition, error_info: Option<OnigErrorInfo>) -> Self {
@@ -233,7 +234,6 @@ impl error::Error for Error {
     }
 }
 
-
 impl<'a> Iterator for PositionIter<'a> {
     type Item = (usize, usize);
     fn next(&mut self) -> Option<Self::Item> {
@@ -251,8 +251,6 @@ impl<'a> Iterator for PositionIter<'a> {
 
 //pub struct RegexBuilder
 
-
-
 #[test]
 fn test_search() {
     let mut reg = Regex::new("a(.*)b|[e-f]+".to_string()).unwrap();
@@ -260,7 +258,6 @@ fn test_search() {
     let reg = reg.search(s).unwrap();
     assert_eq!(reg.positions().count(), 2);
 }
-
 
 #[test]
 fn test_match_at() {
@@ -274,9 +271,11 @@ fn test_match_at() {
 fn test_scan() {
     let mut reg = Regex::new("ab".to_string()).unwrap();
     let s = "abcdabcdabcd";
-    let r = reg.scan(s, &mut |start, end, _reg| {
-        println!("{} {}", start, end);
-        Ok(())
-    }).unwrap();
+    let r = reg
+        .scan(s, &mut |start, end, _reg| {
+            println!("{} {}", start, end);
+            Ok(())
+        })
+        .unwrap();
     assert_eq!(r, 3);
 }

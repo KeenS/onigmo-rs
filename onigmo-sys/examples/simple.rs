@@ -9,11 +9,11 @@ fn main() {
         // マッチ対象です
         let s = b"zzzzaffffffffb";
         // `onig_new_without_alloc`で初期化するメモリをスタックに確保する。
-        let mut reg: regex_t = mem::uninitialized();
-        let mut einfo: OnigErrorInfo = mem::uninitialized();
+        let mut reg = mem::MaybeUninit::<regex_t>::uninit();
+        let mut einfo = mem::MaybeUninit::<OnigErrorInfo>::uninit();
         // 正規表現文字列をコンパイルし、`reg`に格納する。
         let r = onig_new_without_alloc(
-            &mut reg as *mut _,
+            reg.as_mut_ptr(),
             // パターン文字列の先頭
             pattern as *const OnigUChar,
             // パターン文字列の末尾
@@ -24,10 +24,11 @@ fn main() {
             &OnigEncodingUTF_8,
             // Onigmoのデフォルトの構文を使う
             OnigDefaultSyntax,
-            &mut einfo,
+            einfo.as_mut_ptr(),
         );
         // コンパイル結果の返り値が正常値でなければエラー
         if (r as ::std::os::raw::c_uint) != ONIG_NORMAL {
+            let einfo = einfo.assume_init();
             // エラー情報を取得し出力 する
             let s: &mut [OnigUChar] = &mut [0; ONIG_MAX_ERROR_MESSAGE_LEN as usize];
             onig_error_code_to_str(s as *mut _ as *mut _, r as OnigPosition, &einfo);
@@ -35,6 +36,8 @@ fn main() {
             // 正規表現のエラーならそのまま終了
             return;
         }
+
+        let mut reg = reg.assume_init();
 
         // マッチ情報を表わすデータを準備する
         let region = onig_region_new();
